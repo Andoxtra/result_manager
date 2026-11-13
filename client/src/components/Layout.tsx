@@ -6,11 +6,11 @@ import { api, type Role } from "../api";
 import { useAuth } from "../auth";
 import { notifyError, notifySuccess } from "../notify";
 
-const NAV: { to: string; label: string; roles: Role[] | "all" }[] = [
+const NAV: { to: string; label: string; roles: Role[] }[] = [
   { to: "/ausgabe", label: "Kartenausgabe", roles: ["ISSUER"] },
   { to: "/erfassung", label: "Ergebniserfassung", roles: ["SCORER"] },
   { to: "/auswertung", label: "Auswertung", roles: ["SCORER", "EVALUATOR"] },
-  { to: "/veranstaltungen", label: "Veranstaltungen", roles: "all" },
+  { to: "/veranstaltungen", label: "Veranstaltungen", roles: [] },
   { to: "/disziplinen", label: "Disziplinen", roles: [] },
   { to: "/benutzer", label: "Benutzer", roles: [] },
 ];
@@ -82,7 +82,7 @@ export function Layout() {
 
       <AppShell.Navbar p="sm">
         <AppShell.Section grow>
-          {NAV.filter((item) => item.roles === "all" || can(...item.roles)).map((item) => (
+          {NAV.filter((item) => can(...item.roles)).map((item) => (
             <NavLink
               key={item.to}
               component={RouterNavLink}
@@ -95,6 +95,9 @@ export function Layout() {
         </AppShell.Section>
         <AppShell.Section>
           <Stack gap="xs">
+            <Text size="sm" c="dimmed" ta="center" truncate>
+              {user?.displayName}
+            </Text>
             <Button variant="subtle" onClick={password.open}>
               Passwort ändern
             </Button>

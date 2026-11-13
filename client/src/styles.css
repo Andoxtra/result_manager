@@ -1,0 +1,7 @@
+/* iOS Safari zooms into the page when a focused input has a font size below 16px. */
+@media (max-width: 48em) {
+  .mantine-Input-input,
+  .mantine-PasswordInput-innerInput {
+    font-size: 16px;
+  }
+}

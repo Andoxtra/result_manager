@@ -13,10 +13,21 @@ A user can have several roles.
 | `ISSUER` | Kartenausgabe | register shooters, hand out shooting cards, take back a card without result |
 | `SCORER` | Ergebniserfassung | enter and correct results, see rankings, export PDF |
 | `EVALUATOR` | Auswertung | see rankings and statistics, export PDF |
-| `ADMIN` | Administrator | everything, plus users, disciplines and events (create, close, archive, delete) |
+| `ADMIN` | Administrator | everything, plus users, disciplines and events |
 
-Everyone can look at the results of events once they are closed ("abgeschlossen").
-A closed event can only be changed by an admin. Archived events are only visible to admins.
+## Course of an event
+
+1. The admin creates the event ("geplant") and chooses its disciplines. Nobody else sees it yet.
+2. The admin **starts** it ("läuft"). Issuers, scorers and evaluators now work on this event
+   automatically; they never choose an event. Only one event can run at a time.
+3. Every shooter is registered once ("Neuen Schützen anlegen") and gets the next shooter
+   number. Cards are then handed out by looking the shooter up by number or name. A further
+   card for a discipline the shooter already shot is a "Nachlösung" and is marked as such.
+4. The admin **ends** the event ("beendet"). From then on only admins see it, under
+   "Veranstaltungen", with rankings, statistics and PDF export. They can restart, archive
+   or delete it. Do the final evaluation and export before ending, or as admin afterwards.
+
+The app is built for phones as well as larger screens.
 
 ## How results count
 
@@ -27,6 +38,7 @@ A closed event can only be changed by an admin. Archived events are only visible
 - A shooter can get any number of cards; only their best card per discipline is ranked.
 - Equal results share a place (1, 2, 2, 4).
 - Shooter numbers are assigned automatically per event, starting at 1.
+- The statistics count registered shooters, cards, and how many cards were "nachgelöst".
 
 Admins can add further disciplines of either kind under "Disziplinen".
 

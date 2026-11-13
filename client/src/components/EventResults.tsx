@@ -1,8 +1,9 @@
 import { Alert, Badge, Button, Group, Loader, Paper, SimpleGrid, Stack, Table, Tabs, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { api, ApiError, type Evaluation } from "../api";
+import { api, type Evaluation } from "../api";
 import { useAuth } from "../auth";
-import { formatDate, formatTime } from "../format";
+import { Row } from "./Row";
+import { formatDate, formatTime, STATUS_COLORS, STATUS_LABELS } from "../format";
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
@@ -19,46 +20,50 @@ function Ranking({ ranking }: { ranking: Evaluation["rankings"][number] }) {
   if (rows.length === 0) return <Text c="dimmed">Noch keine Ergebnisse.</Text>;
   return (
     <Stack gap="xs">
-      <Table.ScrollContainer minWidth={isTime ? 620 : 420}>
-        <Table striped>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th ta="right" w={70}>Platz</Table.Th>
-              <Table.Th ta="right" w={70}>Nr.</Table.Th>
-              <Table.Th>Name</Table.Th>
+      {/* On a phone the time details move below the final time and the card count is left out. */}
+      <Table striped>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th ta="right" w={56}>Platz</Table.Th>
+            <Table.Th ta="right" w={48}>Nr.</Table.Th>
+            <Table.Th>Name</Table.Th>
+            {isTime ? (
+              <>
+                <Table.Th ta="right" visibleFrom="sm">Zeit</Table.Th>
+                <Table.Th ta="right" visibleFrom="sm">Fehler</Table.Th>
+                <Table.Th ta="right">Endzeit</Table.Th>
+              </>
+            ) : (
+              <Table.Th ta="right">Punkte</Table.Th>
+            )}
+            <Table.Th ta="right" visibleFrom="sm">Karten</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {rows.map((row) => (
+            <Table.Tr key={row.shooterId}>
+              <Table.Td ta="right" fw={row.place <= 3 ? 700 : undefined}>{row.place}.</Table.Td>
+              <Table.Td ta="right">{row.shooterNumber}</Table.Td>
+              <Table.Td style={{ overflowWrap: "break-word" }}>{row.shooterName}</Table.Td>
               {isTime ? (
                 <>
-                  <Table.Th ta="right">Zeit</Table.Th>
-                  <Table.Th ta="right">Fehler</Table.Th>
-                  <Table.Th ta="right">Endzeit</Table.Th>
+                  <Table.Td ta="right" visibleFrom="sm">{formatTime(row.rawTimeCs!)}</Table.Td>
+                  <Table.Td ta="right" visibleFrom="sm">{row.penalties}</Table.Td>
+                  <Table.Td ta="right" style={{ whiteSpace: "nowrap" }}>
+                    <Text fw={700} inherit>{formatTime(row.finalTimeCs!)}</Text>
+                    <Text size="xs" c="dimmed" hiddenFrom="sm">
+                      {formatTime(row.rawTimeCs!)} + {row.penalties} Fehler
+                    </Text>
+                  </Table.Td>
                 </>
               ) : (
-                <Table.Th ta="right">Punkte</Table.Th>
+                <Table.Td ta="right" fw={700}>{row.score}</Table.Td>
               )}
-              <Table.Th ta="right">Karten</Table.Th>
+              <Table.Td ta="right" visibleFrom="sm">{row.cardCount}</Table.Td>
             </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {rows.map((row) => (
-              <Table.Tr key={row.shooterId}>
-                <Table.Td ta="right" fw={row.place <= 3 ? 700 : undefined}>{row.place}.</Table.Td>
-                <Table.Td ta="right">{row.shooterNumber}</Table.Td>
-                <Table.Td>{row.shooterName}</Table.Td>
-                {isTime ? (
-                  <>
-                    <Table.Td ta="right">{formatTime(row.rawTimeCs!)}</Table.Td>
-                    <Table.Td ta="right">{row.penalties}</Table.Td>
-                    <Table.Td ta="right" fw={700}>{formatTime(row.finalTimeCs!)}</Table.Td>
-                  </>
-                ) : (
-                  <Table.Td ta="right" fw={700}>{row.score}</Table.Td>
-                )}
-                <Table.Td ta="right">{row.cardCount}</Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
+          ))}
+        </Table.Tbody>
+      </Table>
       <Text size="sm" c="dimmed">
         Gewertet wird die beste Karte jedes Schützen.
         {isTime && ` Endzeit = Zeit + Fehler × ${discipline.penaltySeconds} s.`}
@@ -78,12 +83,7 @@ export function EventResults({ eventId }: { eventId: number }) {
 
   if (isPending) return <Loader />;
   if (error) {
-    const forbidden = error instanceof ApiError && error.status === 403;
-    return (
-      <Alert color={forbidden ? "yellow" : "red"}>
-        {forbidden ? "Die Ergebnisse sind erst nach Abschluss der Veranstaltung für alle sichtbar." : error.message}
-      </Alert>
-    );
+    return <Alert color="red">{error.message}</Alert>;
   }
 
   const { event, statistics, rankings } = data;
@@ -93,9 +93,7 @@ export function EventResults({ eventId }: { eventId: number }) {
         <div>
           <Group gap="sm">
             <Title order={3}>{event.name}</Title>
-            <Badge color={event.status === "OPEN" ? "green" : "gray"}>
-              {event.status === "OPEN" ? "läuft" : "abgeschlossen"}
-            </Badge>
+            <Badge color={STATUS_COLORS[event.status]}>{STATUS_LABELS[event.status]}</Badge>
             {event.archivedAt && <Badge color="orange">archiviert</Badge>}
           </Group>
           <Text c="dimmed">{formatDate(event.date)}</Text>
@@ -107,34 +105,46 @@ export function EventResults({ eventId }: { eventId: number }) {
         )}
       </Group>
 
-      <SimpleGrid cols={{ base: 1, xs: 3 }}>
-        <Stat label="Schützen insgesamt" value={statistics.shooters} />
-        <Stat label="Ausgegebene Schießkarten" value={statistics.cardsIssued} />
-        <Stat label="Karten ohne Ergebnis" value={statistics.cardsOpen} />
+      <SimpleGrid cols={{ base: 2, sm: 4 }}>
+        <Stat label="Schützen" value={statistics.shooters} />
+        <Stat label="Schießkarten" value={statistics.cardsIssued} />
+        <Stat label="Davon nachgelöst" value={statistics.cardsRebought} />
+        <Stat label="Ohne Ergebnis" value={statistics.cardsOpen} />
       </SimpleGrid>
 
-      <Table.ScrollContainer minWidth={420}>
-        <Table>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Disziplin</Table.Th>
-              <Table.Th ta="right">Schützen</Table.Th>
-              <Table.Th ta="right">Karten</Table.Th>
-              <Table.Th ta="right">Ohne Ergebnis</Table.Th>
+      {/* five columns do not fit on a phone: there each discipline gets a line of its own */}
+      <Stack gap="xs" hiddenFrom="sm">
+        {statistics.disciplines.map((d) => (
+          <Row key={d.disciplineId} title={d.name}>
+            <span>{d.shooters} Schützen</span>
+            <span>{d.cards} Karten</span>
+            <span>{d.rebuys} nachgelöst</span>
+            <span>{d.openCards} offen</span>
+          </Row>
+        ))}
+      </Stack>
+      <Table visibleFrom="sm">
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Disziplin</Table.Th>
+            <Table.Th ta="right">Schützen</Table.Th>
+            <Table.Th ta="right">Karten</Table.Th>
+            <Table.Th ta="right">Nachgelöst</Table.Th>
+            <Table.Th ta="right">Ohne Ergebnis</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {statistics.disciplines.map((d) => (
+            <Table.Tr key={d.disciplineId}>
+              <Table.Td>{d.name}</Table.Td>
+              <Table.Td ta="right">{d.shooters}</Table.Td>
+              <Table.Td ta="right">{d.cards}</Table.Td>
+              <Table.Td ta="right">{d.rebuys}</Table.Td>
+              <Table.Td ta="right">{d.openCards}</Table.Td>
             </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {statistics.disciplines.map((d) => (
-              <Table.Tr key={d.disciplineId}>
-                <Table.Td>{d.name}</Table.Td>
-                <Table.Td ta="right">{d.shooters}</Table.Td>
-                <Table.Td ta="right">{d.cards}</Table.Td>
-                <Table.Td ta="right">{d.openCards}</Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
+          ))}
+        </Table.Tbody>
+      </Table>
 
       <Title order={4} mt="sm">Ranglisten</Title>
       {rankings.length === 0 ? (

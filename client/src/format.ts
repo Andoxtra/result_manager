@@ -1,4 +1,4 @@
-import type { Card, Discipline, Role } from "./api";
+import type { Card, Discipline, EventStatus, Role } from "./api";
 
 export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: "Administrator",
@@ -6,6 +6,9 @@ export const ROLE_LABELS: Record<Role, string> = {
   SCORER: "Ergebniserfassung",
   EVALUATOR: "Auswertung",
 };
+
+export const STATUS_LABELS: Record<EventStatus, string> = { PLANNED: "geplant", OPEN: "läuft", CLOSED: "beendet" };
+export const STATUS_COLORS: Record<EventStatus, string> = { PLANNED: "blue", OPEN: "green", CLOSED: "gray" };
 
 const dateFormat = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium" });
 export const formatDate = (iso: string) => dateFormat.format(new Date(iso));

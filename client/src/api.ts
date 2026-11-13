@@ -21,11 +21,14 @@ export interface Discipline {
   active: boolean;
 }
 
+/** PLANNED: not started, OPEN: running, CLOSED: ended. Only admins see events that are not running. */
+export type EventStatus = "PLANNED" | "OPEN" | "CLOSED";
+
 export interface EventSummary {
   id: number;
   name: string;
   date: string;
-  status: "OPEN" | "CLOSED";
+  status: EventStatus;
   archivedAt: string | null;
   disciplines: Discipline[];
   cardCount: number;
@@ -47,6 +50,8 @@ export interface Card {
   rawTimeCs: number | null;
   penalties: number | null;
   scoredAt: string | null;
+  /** "Nachlösen": the shooter already had a card for this discipline */
+  rebuy: boolean;
   shooter: { id: number; number: number; name: string };
   discipline: Discipline;
   issuedBy: { displayName: string } | null;
@@ -67,12 +72,13 @@ export interface RankingRow {
 }
 
 export interface Evaluation {
-  event: { id: number; name: string; date: string; status: "OPEN" | "CLOSED"; archivedAt: string | null };
+  event: { id: number; name: string; date: string; status: EventStatus; archivedAt: string | null };
   statistics: {
     cardsIssued: number;
     cardsOpen: number;
+    cardsRebought: number;
     shooters: number;
-    disciplines: { disciplineId: number; name: string; cards: number; openCards: number; shooters: number }[];
+    disciplines: { disciplineId: number; name: string; cards: number; openCards: number; shooters: number; rebuys: number }[];
   };
   rankings: { discipline: Discipline; rows: RankingRow[] }[];
 }

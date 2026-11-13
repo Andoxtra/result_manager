@@ -1,10 +1,10 @@
-import { Alert, Anchor, Badge, Button, Checkbox, Group, Loader, Menu, Modal, Stack, Switch, Table, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Anchor, Badge, Button, Checkbox, Group, Loader, Menu, Modal, Stack, Switch, Text, TextInput, Title } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, type Discipline, type EventSummary } from "../api";
-import { useAuth } from "../auth";
-import { formatDate } from "../format";
+import { Row } from "../components/Row";
+import { formatDate, STATUS_COLORS, STATUS_LABELS } from "../format";
 import { notifyError, notifySuccess } from "../notify";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -96,8 +96,6 @@ function DeleteForm({ event, onDone }: { event: EventSummary; onDone: () => void
 }
 
 export function EventsPage() {
-  const { can } = useAuth();
-  const isAdmin = can();
   const queryClient = useQueryClient();
   const [showArchived, setShowArchived] = useState(false);
   const [form, setForm] = useState<{ event: EventSummary | null } | null>(null);
@@ -121,82 +119,83 @@ export function EventsPage() {
     <Stack>
       <Group justify="space-between">
         <Title order={2}>Veranstaltungen</Title>
-        {isAdmin && <Button onClick={() => setForm({ event: null })}>Neue Veranstaltung</Button>}
+        <Button onClick={() => setForm({ event: null })}>Neue Veranstaltung</Button>
       </Group>
-      {isAdmin && (
-        <Switch label="Archivierte anzeigen" checked={showArchived} onChange={(e) => setShowArchived(e.currentTarget.checked)} />
-      )}
+      <Text c="dimmed" size="sm">
+        Eine Veranstaltung ist für die anderen Benutzer erst sichtbar, wenn sie gestartet wurde, und nur solange sie
+        läuft. Es kann immer nur eine Veranstaltung laufen.
+      </Text>
+      <Switch label="Archivierte anzeigen" checked={showArchived} onChange={(e) => setShowArchived(e.currentTarget.checked)} />
 
       {events.isPending && <Loader />}
       {events.error && <Alert color="red">{events.error.message}</Alert>}
       {events.data?.length === 0 && <Text c="dimmed">Es gibt noch keine Veranstaltung.</Text>}
 
-      {!!events.data?.length && (
-        <Table.ScrollContainer minWidth={640}>
-          <Table striped>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Datum</Table.Th>
-                <Table.Th>Disziplinen</Table.Th>
-                <Table.Th ta="right">Karten</Table.Th>
-                <Table.Th>Status</Table.Th>
-                {isAdmin && <Table.Th />}
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {events.data.map((event) => (
-                <Table.Tr key={event.id}>
-                  <Table.Td>
-                    <Anchor component={Link} to={`/veranstaltungen/${event.id}`}>
-                      {event.name}
-                    </Anchor>
-                  </Table.Td>
-                  <Table.Td>{formatDate(event.date)}</Table.Td>
-                  <Table.Td>{event.disciplines.map((d) => d.name).join(", ")}</Table.Td>
-                  <Table.Td ta="right">{event.cardCount}</Table.Td>
-                  <Table.Td>
-                    <Group gap={6}>
-                      <Badge color={event.status === "OPEN" ? "green" : "gray"}>
-                        {event.status === "OPEN" ? "läuft" : "abgeschlossen"}
-                      </Badge>
-                      {event.archivedAt && <Badge color="orange">archiviert</Badge>}
-                    </Group>
-                  </Table.Td>
-                  {isAdmin && (
-                    <Table.Td ta="right">
-                      <Menu position="bottom-end">
-                        <Menu.Target>
-                          <Button size="compact-sm" variant="default">
-                            Verwalten
-                          </Button>
-                        </Menu.Target>
-                        <Menu.Dropdown>
-                          <Menu.Item onClick={() => setForm({ event })}>Bearbeiten</Menu.Item>
-                          {event.status === "OPEN" ? (
-                            <Menu.Item onClick={() => update.mutate({ event, body: { status: "CLOSED" } })}>Abschließen</Menu.Item>
-                          ) : (
-                            <Menu.Item onClick={() => update.mutate({ event, body: { status: "OPEN" } })}>Wieder öffnen</Menu.Item>
-                          )}
-                          {event.archivedAt ? (
-                            <Menu.Item onClick={() => update.mutate({ event, body: { archived: false } })}>Archivierung aufheben</Menu.Item>
-                          ) : (
-                            <Menu.Item onClick={() => update.mutate({ event, body: { archived: true, status: "CLOSED" } })}>Archivieren</Menu.Item>
-                          )}
-                          <Menu.Divider />
-                          <Menu.Item color="red" onClick={() => setDeleting(event)}>
-                            Löschen …
-                          </Menu.Item>
-                        </Menu.Dropdown>
-                      </Menu>
-                    </Table.Td>
-                  )}
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
-      )}
+      <Stack gap="xs">
+        {events.data?.map((event) => (
+          <Row
+            key={event.id}
+            title={
+              <Anchor component={Link} to={`/veranstaltungen/${event.id}`} inherit>
+                {event.name}
+              </Anchor>
+            }
+            actions={
+              <>
+                {event.status === "OPEN" ? (
+                  <Button
+                    color="red"
+                    variant="light"
+                    onClick={() =>
+                      window.confirm(
+                        `„${event.name}“ beenden? Die anderen Benutzer sehen die Veranstaltung danach nicht mehr und können nichts mehr eintragen.`,
+                      ) && update.mutate({ event, body: { status: "CLOSED" } })
+                    }
+                  >
+                    Beenden
+                  </Button>
+                ) : (
+                  !event.archivedAt && (
+                    <Button color="green" onClick={() => update.mutate({ event, body: { status: "OPEN" } })}>
+                      {event.status === "PLANNED" ? "Starten" : "Wieder starten"}
+                    </Button>
+                  )
+                )}
+                <Menu position="bottom-end">
+                  <Menu.Target>
+                    <Button variant="default">Mehr</Button>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item onClick={() => setForm({ event })}>Bearbeiten</Menu.Item>
+                    {event.archivedAt ? (
+                      <Menu.Item onClick={() => update.mutate({ event, body: { archived: false } })}>Archivierung aufheben</Menu.Item>
+                    ) : (
+                      <Menu.Item
+                        onClick={() =>
+                          (event.status !== "OPEN" || window.confirm(`„${event.name}“ läuft noch. Beenden und archivieren?`)) &&
+                          update.mutate({ event, body: { archived: true } })
+                        }
+                      >
+                        Archivieren
+                      </Menu.Item>
+                    )}
+                    <Menu.Divider />
+                    <Menu.Item color="red" onClick={() => setDeleting(event)}>
+                      Löschen …
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              </>
+            }
+          >
+            <Badge color={STATUS_COLORS[event.status]}>{STATUS_LABELS[event.status]}</Badge>
+            {event.archivedAt && <Badge color="orange">archiviert</Badge>}
+            <span>{formatDate(event.date)}</span>
+            <span>{event.cardCount === 1 ? "1 Karte" : `${event.cardCount} Karten`}</span>
+            <span>{event.disciplines.map((d) => d.name).join(", ")}</span>
+          </Row>
+        ))}
+      </Stack>
 
       <Modal opened={!!form} onClose={() => setForm(null)} title={form?.event ? "Veranstaltung bearbeiten" : "Neue Veranstaltung"}>
         {form && <EventForm key={form.event?.id ?? "new"} event={form.event} onDone={() => setForm(null)} />}

@@ -1,8 +1,9 @@
-import { Alert, Badge, Button, Checkbox, Group, Loader, Modal, PasswordInput, Stack, Switch, Table, TextInput, Title } from "@mantine/core";
+import { Alert, Badge, Button, Checkbox, Group, Loader, Modal, PasswordInput, Stack, Switch, TextInput, Title } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, type Role, type User } from "../api";
 import { useAuth } from "../auth";
+import { Row } from "../components/Row";
 import { ROLE_LABELS } from "../format";
 import { notifyError, notifySuccess } from "../notify";
 
@@ -94,58 +95,38 @@ export function UsersPage() {
       </Group>
       {users.isPending && <Loader />}
       {users.error && <Alert color="red">{users.error.message}</Alert>}
-      {users.data && (
-        <Table.ScrollContainer minWidth={620}>
-          <Table striped>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Benutzername</Table.Th>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Rollen</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {users.data.map((u) => (
-                <Table.Tr key={u.id}>
-                  <Table.Td>{u.username}</Table.Td>
-                  <Table.Td>{u.displayName}</Table.Td>
-                  <Table.Td>
-                    <Group gap={6}>
-                      {ROLE_ORDER.filter((r) => u.roles.includes(r)).map((r) => (
-                        <Badge key={r} variant="light" color={r === "ADMIN" ? "red" : "blue"}>
-                          {ROLE_LABELS[r]}
-                        </Badge>
-                      ))}
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge color={u.active ? "green" : "gray"}>{u.active ? "aktiv" : "gesperrt"}</Badge>
-                  </Table.Td>
-                  <Table.Td>
-                    <Group gap="xs" justify="flex-end" wrap="nowrap">
-                      <Button size="compact-sm" variant="default" onClick={() => setForm({ user: u })}>
-                        Bearbeiten
-                      </Button>
-                      {u.id !== me?.id && (
-                        <Button
-                          size="compact-sm"
-                          variant="subtle"
-                          color="red"
-                          onClick={() => window.confirm(`Benutzer „${u.username}“ wirklich löschen?`) && remove.mutate(u)}
-                        >
-                          Löschen
-                        </Button>
-                      )}
-                    </Group>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
-      )}
+      <Stack gap="xs">
+        {users.data?.map((u) => (
+          <Row
+            key={u.id}
+            title={`${u.displayName} (${u.username})`}
+            actions={
+              <>
+                <Button variant="default" onClick={() => setForm({ user: u })}>
+                  Bearbeiten
+                </Button>
+                {u.id !== me?.id && (
+                  <Button
+                    variant="subtle"
+                    color="red"
+                    onClick={() => window.confirm(`Benutzer „${u.username}“ wirklich löschen?`) && remove.mutate(u)}
+                  >
+                    Löschen
+                  </Button>
+                )}
+              </>
+            }
+          >
+            {!u.active && <Badge color="gray">gesperrt</Badge>}
+            {ROLE_ORDER.filter((r) => u.roles.includes(r)).map((r) => (
+              <Badge key={r} variant="light" color={r === "ADMIN" ? "red" : "blue"}>
+                {ROLE_LABELS[r]}
+              </Badge>
+            ))}
+            {u.roles.length === 0 && <span>keine Rolle</span>}
+          </Row>
+        ))}
+      </Stack>
       <Modal opened={!!form} onClose={() => setForm(null)} title={form?.user ? "Benutzer bearbeiten" : "Neuer Benutzer"}>
         {form && <UserForm key={form.user?.id ?? "new"} user={form.user} onDone={() => setForm(null)} />}
       </Modal>

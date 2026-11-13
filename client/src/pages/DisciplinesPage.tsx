@@ -1,7 +1,8 @@
-import { Alert, Badge, Button, Group, Loader, Modal, NumberInput, Select, Stack, Switch, Table, TextInput, Title } from "@mantine/core";
+import { Alert, Badge, Button, Group, Loader, Modal, NumberInput, Select, Stack, Switch, TextInput, Title } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, type Discipline, type ScoringType } from "../api";
+import { Row } from "../components/Row";
 import { notifyError, notifySuccess } from "../notify";
 
 const TYPE_LABELS: Record<ScoringType, string> = {
@@ -88,48 +89,31 @@ export function DisciplinesPage() {
       </Group>
       {disciplines.isPending && <Loader />}
       {disciplines.error && <Alert color="red">{disciplines.error.message}</Alert>}
-      {disciplines.data && (
-        <Table.ScrollContainer minWidth={560}>
-          <Table striped>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Wertung</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {disciplines.data.map((d) => (
-                <Table.Tr key={d.id}>
-                  <Table.Td>{d.name}</Table.Td>
-                  <Table.Td>
-                    {d.scoringType === "POINTS" ? `Punkte, höchstens ${d.maxScore}` : `Zeit, ${d.penaltySeconds} s je Fehler`}
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge color={d.active ? "green" : "gray"}>{d.active ? "aktiv" : "deaktiviert"}</Badge>
-                  </Table.Td>
-                  <Table.Td>
-                    <Group gap="xs" justify="flex-end" wrap="nowrap">
-                      <Button size="compact-sm" variant="default" onClick={() => setForm({ discipline: d })}>
-                        Bearbeiten
-                      </Button>
-                      <Button
-                        size="compact-sm"
-                        variant="subtle"
-                        color="red"
-                        onClick={() => window.confirm(`Disziplin „${d.name}“ wirklich löschen?`) && remove.mutate(d)}
-                      >
-                        Löschen
-                      </Button>
-                    </Group>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
-      )}
+      <Stack gap="xs">
+        {disciplines.data?.map((d) => (
+          <Row
+            key={d.id}
+            title={d.name}
+            actions={
+              <>
+                <Button variant="default" onClick={() => setForm({ discipline: d })}>
+                  Bearbeiten
+                </Button>
+                <Button
+                  variant="subtle"
+                  color="red"
+                  onClick={() => window.confirm(`Disziplin „${d.name}“ wirklich löschen?`) && remove.mutate(d)}
+                >
+                  Löschen
+                </Button>
+              </>
+            }
+          >
+            <Badge color={d.active ? "green" : "gray"}>{d.active ? "aktiv" : "deaktiviert"}</Badge>
+            <span>{d.scoringType === "POINTS" ? `Punkte, höchstens ${d.maxScore}` : `Zeit, ${d.penaltySeconds} s je Fehler`}</span>
+          </Row>
+        ))}
+      </Stack>
       <Modal opened={!!form} onClose={() => setForm(null)} title={form?.discipline ? "Disziplin bearbeiten" : "Neue Disziplin"}>
         {form && <DisciplineForm key={form.discipline?.id ?? "new"} discipline={form.discipline} onDone={() => setForm(null)} />}
       </Modal>

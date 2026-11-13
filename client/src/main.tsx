@@ -1,5 +1,6 @@
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
+import "./styles.css";
 import { MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -25,7 +26,8 @@ const queryClient: QueryClient = new QueryClient({
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <MantineProvider defaultColorScheme="auto">
-      <Notifications position="top-right" />
+      {/* few and short-lived, so they do not cover the form on a phone */}
+      <Notifications position="top-right" limit={2} autoClose={2500} />
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <BrowserRouter>

@@ -1,4 +1,4 @@
-import { Center, Loader } from "@mantine/core";
+import { Alert, Center, Loader } from "@mantine/core";
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import type { Role } from "./api";
@@ -23,7 +23,7 @@ function Home() {
   if (can("ISSUER")) return <Navigate to="/ausgabe" replace />;
   if (can("SCORER")) return <Navigate to="/erfassung" replace />;
   if (can("EVALUATOR")) return <Navigate to="/auswertung" replace />;
-  return <Navigate to="/veranstaltungen" replace />;
+  return <Alert color="yellow">Diesem Benutzer ist noch keine Rolle zugewiesen. Bitte an den Administrator wenden.</Alert>;
 }
 
 export function App() {
@@ -44,8 +44,8 @@ export function App() {
         <Route path="ausgabe" element={<Guard roles={["ISSUER"]}><IssuePage /></Guard>} />
         <Route path="erfassung" element={<Guard roles={["SCORER"]}><ScoringPage /></Guard>} />
         <Route path="auswertung" element={<Guard roles={["SCORER", "EVALUATOR"]}><EvaluationPage /></Guard>} />
-        <Route path="veranstaltungen" element={<EventsPage />} />
-        <Route path="veranstaltungen/:id" element={<EventDetailPage />} />
+        <Route path="veranstaltungen" element={<Guard roles={[]}><EventsPage /></Guard>} />
+        <Route path="veranstaltungen/:id" element={<Guard roles={[]}><EventDetailPage /></Guard>} />
         <Route path="benutzer" element={<Guard roles={[]}><UsersPage /></Guard>} />
         <Route path="disziplinen" element={<Guard roles={[]}><DisciplinesPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />

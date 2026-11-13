@@ -1,9 +1,9 @@
-import { Alert, Badge, Button, Group, Modal, NumberInput, SegmentedControl, Stack, Table, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Badge, Button, Group, Modal, NumberInput, SegmentedControl, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, type Card } from "../api";
-import { useAuth } from "../auth";
 import { EventPicker, useEventChoice } from "../components/EventPicker";
+import { Row } from "../components/Row";
 import { cardResultText, finalTimeCs, formatTime, isScored, parseTime, timeInputValue } from "../format";
 import { notifyError, notifySuccess } from "../notify";
 
@@ -51,6 +51,7 @@ function ResultForm({ card, onDone }: { card: Card; onDone: () => void }) {
           Schütze Nr. <b>{card.shooter.number}</b> – <b>{card.shooter.name}</b>
           <br />
           {card.discipline.name}
+          {card.rebuy && " (nachgelöst)"}
         </Text>
 
         {isTime ? (
@@ -61,7 +62,7 @@ function ResultForm({ card, onDone }: { card: Card; onDone: () => void }) {
               value={time}
               onChange={(e) => setTime(e.currentTarget.value)}
               error={time !== "" && rawTimeCs === null ? "Keine gültige Zeit" : undefined}
-              inputMode="decimal"
+              inputMode="text"
               autoComplete="off"
               data-autofocus
             />
@@ -119,9 +120,7 @@ function ResultForm({ card, onDone }: { card: Card; onDone: () => void }) {
 }
 
 export function ScoringPage() {
-  const { can } = useAuth();
-  const isAdmin = can();
-  const choice = useEventChoice((e) => e.status === "OPEN" || isAdmin);
+  const choice = useEventChoice();
   const event = choice.event;
   const [search, setSearch] = useState("");
   const [show, setShow] = useState<"open" | "scored" | "all">("open");
@@ -151,11 +150,7 @@ export function ScoringPage() {
   return (
     <Stack>
       <Title order={2}>Ergebniserfassung</Title>
-      <EventPicker choice={choice} emptyMessage="Es gibt derzeit keine laufende Veranstaltung." />
-
-      {event && event.status === "CLOSED" && (
-        <Alert color="yellow">Diese Veranstaltung ist abgeschlossen. Änderungen sind nur als Administrator möglich.</Alert>
-      )}
+      <EventPicker choice={choice} />
 
       {event && (
         <>
@@ -165,9 +160,8 @@ export function ScoringPage() {
               placeholder="Kartennummer, Schützennummer oder Name"
               value={search}
               onChange={(e) => setSearch(e.currentTarget.value)}
-              w={320}
-              maw="100%"
               autoComplete="off"
+              style={{ flex: "1 1 240px", maxWidth: 360 }}
             />
             <SegmentedControl
               value={show}
@@ -183,38 +177,23 @@ export function ScoringPage() {
           {cards.error && <Alert color="red">{cards.error.message}</Alert>}
           {cards.isSuccess && visible.length === 0 && <Text c="dimmed">Keine Karten gefunden.</Text>}
 
-          {visible.length > 0 && (
-            <Table.ScrollContainer minWidth={560}>
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Karte</Table.Th>
-                    <Table.Th>Nr.</Table.Th>
-                    <Table.Th>Name</Table.Th>
-                    <Table.Th>Disziplin</Table.Th>
-                    <Table.Th>Ergebnis</Table.Th>
-                    <Table.Th />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {visible.map((card) => (
-                    <Table.Tr key={card.id}>
-                      <Table.Td>{card.cardNumber}</Table.Td>
-                      <Table.Td>{card.shooter.number}</Table.Td>
-                      <Table.Td>{card.shooter.name}</Table.Td>
-                      <Table.Td>{card.discipline.name}</Table.Td>
-                      <Table.Td>{isScored(card) ? cardResultText(card) : <Badge color="gray" variant="light">offen</Badge>}</Table.Td>
-                      <Table.Td ta="right">
-                        <Button size="compact-sm" variant={isScored(card) ? "subtle" : "filled"} onClick={() => setEditing(card)}>
-                          {isScored(card) ? "Korrigieren" : "Erfassen"}
-                        </Button>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          )}
+          <Stack gap="xs">
+            {visible.map((card) => (
+              <Row
+                key={card.id}
+                title={`Karte ${card.cardNumber} · Nr. ${card.shooter.number} ${card.shooter.name}`}
+                actions={
+                  <Button variant={isScored(card) ? "default" : "filled"} onClick={() => setEditing(card)}>
+                    {isScored(card) ? "Korrigieren" : "Erfassen"}
+                  </Button>
+                }
+              >
+                <span>{card.discipline.name}</span>
+                {card.rebuy && <Badge variant="light">Nachgelöst</Badge>}
+                {isScored(card) ? <span>{cardResultText(card)}</span> : <Badge color="gray" variant="light">offen</Badge>}
+              </Row>
+            ))}
+          </Stack>
         </>
       )}
 

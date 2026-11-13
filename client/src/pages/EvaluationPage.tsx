@@ -3,11 +3,11 @@ import { EventPicker, useEventChoice } from "../components/EventPicker";
 import { EventResults } from "../components/EventResults";
 
 export function EvaluationPage() {
-  const choice = useEventChoice(() => true);
+  const choice = useEventChoice();
   return (
     <Stack>
       <Title order={2}>Auswertung</Title>
-      <EventPicker choice={choice} emptyMessage="Es gibt noch keine Veranstaltung." />
+      <EventPicker choice={choice} />
       {choice.event && <EventResults key={choice.event.id} eventId={choice.event.id} />}
     </Stack>
   );
