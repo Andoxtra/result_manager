@@ -1,0 +1,34 @@
+For a shooting club i need a software for following use case when we have shooting events.
+We have shooters which need a shooting card this one is handed out by a person of our club.
+This person writes down his name and assigns him a shooter number.
+And hands out a card where this information is written down.
+The shooter then goes to the shooting range and shoots his discipline. There are currently 4 disciplines, but there could always be more added in the future.
+
+The 1.,2.,3. are pretty much they same in context of the data structure.
+There is Büffel 50M, Büffel 100M and Greenhorn.
+
+For all of them you shoot 10 rounds and the scores are recorded.
+
+This score is written down on the shooting card.
+
+The 4. discipline is called CAS.
+There a shooter need to walk through a course and shoot at various targets.
+There it counts how long he takes every miss or wrong shot adds a penalty of 5 seconds.
+There are also special things to do which when not done also count as a penalty.
+On the shooting card there is the time taken, the number of penalties and the final time which is the time taken plus the penalties.
+
+When a shooter is done with a discipline he also can get a new shooting card for another discipline or the same one.
+
+In the final evaluation only the best score of a shooter in the discipline is added to the overall ranking.
+
+The software has three persons who manage it the person handing out the shooting cards, the person recording the scores, and the person doing the final evaluation.
+
+The application should run in the web browser and be restricted to the three roles mentioned above.
+Each role will have specific permissions and access to different parts of the application.
+There should also be an admin role which can do everything, including managing users and roles.
+
+The admin should be able to create the event for example Westernschießen 2024, and set the disciplines which are being shot in the event.
+For the scorer it should also be possible to make a pdf export for the whole event with all the scores and rankings for the different disciplines, each discipline should have its own page.
+There should also be the option to see how many shooter cards have been handed out and how many shooters there where overall, and how many shooters participated in each discipline, for the pdf export.
+
+Also there should be a view of all previous events with their scores and rankings and overall statistics. The admin should be able to view and manage these past events, including the ability to delete or archive them if necessary.
