@@ -1,0 +1,15 @@
+services:
+  result-manager:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Password of the "admin" user created on the very first start.
+      # Without it a random password is generated and printed to the log.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    volumes:
+      - result-manager-data:/app/data
+
+volumes:
+  result-manager-data:
