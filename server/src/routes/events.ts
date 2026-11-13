@@ -21,7 +21,7 @@ const updateSchema = z.object({
   name: z.string().trim().min(1).max(150).optional(),
   date: z.coerce.date().optional(),
   disciplineIds: disciplineIds.optional(),
-  status: z.enum(["OPEN", "CLOSED"]).optional(),
+  status: z.enum(["PLANNED", "OPEN", "CLOSED"]).optional(),
   archived: z.boolean().optional(),
 });
 
@@ -55,19 +55,26 @@ async function assertDisciplinesExist(ids: number[]) {
   if (found !== ids.length) throw new HttpError(400, "Unbekannte Disziplin.");
 }
 
-/** Archived events are only visible to admins. */
+/** Everyone but admins only gets to see the event that is currently running. */
+export const isVisibleTo = (event: { status: string; archivedAt: Date | null }, user: SessionUser | undefined) =>
+  hasRole(user) || (event.status === "OPEN" && !event.archivedAt);
+
 export async function loadVisibleEvent(id: number, user: SessionUser | undefined) {
   const event = await prisma.event.findUnique({ where: { id }, include: eventInclude });
-  if (!event || (event.archivedAt && !hasRole(user))) throw notFound("Die Veranstaltung");
+  if (!event || !isVisibleTo(event, user)) throw notFound("Die Veranstaltung");
   return event;
 }
 
 export const eventsRouter = Router();
 
 eventsRouter.get("/", requireAuth, async (req, res) => {
-  const includeArchived = req.query.archived === "true" && hasRole(req.user);
+  const isAdmin = hasRole(req.user);
+  const includeArchived = req.query.archived === "true" && isAdmin;
   const events = await prisma.event.findMany({
-    where: includeArchived ? {} : { archivedAt: null },
+    where: {
+      ...(includeArchived ? {} : { archivedAt: null }),
+      ...(isAdmin ? {} : { status: "OPEN" }),
+    },
     include: eventInclude,
     orderBy: [{ date: "desc" }, { id: "desc" }],
   });
@@ -114,12 +121,29 @@ eventsRouter.patch("/:id", requireRole(), async (req, res) => {
     }
   }
 
+  // An archived event is always ended.
+  const status = data.archived ? "CLOSED" : data.status;
+  const archived = data.archived ?? !!existing.archivedAt;
+  if (status === "OPEN" && archived) {
+    throw new HttpError(409, "Eine archivierte Veranstaltung kann nicht gestartet werden.");
+  }
+  // Issuers and scorers always work on "the" running event, so there can only be one.
+  if (status === "OPEN" && existing.status !== "OPEN") {
+    const running = await prisma.event.findFirst({ where: { status: "OPEN", id: { not: id } } });
+    if (running) {
+      throw new HttpError(
+        409,
+        `Es läuft bereits die Veranstaltung „${running.name}“. Sie muss zuerst beendet werden.`,
+      );
+    }
+  }
+
   const event = await prisma.event.update({
     where: { id },
     data: {
       name: data.name,
       date: data.date,
-      status: data.status,
+      status,
       archivedAt:
         data.archived === undefined ? undefined : data.archived ? (existing.archivedAt ?? new Date()) : null,
       disciplines: data.disciplineIds
@@ -146,15 +170,9 @@ eventsRouter.delete("/:id", requireRole(), async (req, res) => {
   res.status(204).end();
 });
 
-/**
- * Rankings and statistics. While an event is running they are for scorer and evaluator;
- * once it is closed every logged-in user may look at the results.
- */
-eventsRouter.get("/:id/evaluation", requireAuth, async (req, res) => {
+/** Rankings and statistics. */
+eventsRouter.get("/:id/evaluation", requireRole("SCORER", "EVALUATOR"), async (req, res) => {
   const event = await loadVisibleEvent(idParam(req.params.id), req.user);
-  if (event.status === "OPEN" && !hasRole(req.user, "SCORER", "EVALUATOR")) {
-    throw new HttpError(403, "Keine Berechtigung.");
-  }
   res.json(await buildEvaluation(event.id));
 });
 

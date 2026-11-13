@@ -42,7 +42,7 @@ export async function buildEvaluation(eventId: number): Promise<Evaluation> {
       status: event.status,
       archivedAt: event.archivedAt,
     },
-    statistics: computeStatistics(disciplines, event.cards),
+    statistics: computeStatistics(disciplines, event.cards, event.shooters.length),
     rankings: disciplines.map((discipline) => ({
       discipline,
       rows: rankDiscipline(discipline, event.cards, event.shooters),

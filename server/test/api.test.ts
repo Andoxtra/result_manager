@@ -80,6 +80,41 @@ describe("authentication", () => {
   });
 });
 
+const register = async (agent: Agent, name: string) =>
+  (await agent.post(`/api/events/${eventId}/shooters`).send({ name }).expect(201)).body as { id: number; number: number };
+
+describe("event lifecycle", () => {
+  it("hides an event from everyone but admins until it is started", async () => {
+    expect((await admin.get(`/api/events/${eventId}`).expect(200)).body.status).toBe("PLANNED");
+    for (const agent of [issuer, scorer, evaluator]) {
+      expect((await agent.get("/api/events").expect(200)).body).toEqual([]);
+      await agent.get(`/api/events/${eventId}`).expect(404);
+      await agent.get(`/api/events/${eventId}/cards`).expect(404);
+      await agent.get(`/api/events/${eventId}/shooters`).expect(404);
+    }
+    await issuer.post(`/api/events/${eventId}/shooters`).send({ name: "Too Early" }).expect(404);
+    await evaluator.get(`/api/events/${eventId}/evaluation`).expect(404);
+  });
+
+  it("shows the event to everyone once the admin starts it", async () => {
+    await admin.patch(`/api/events/${eventId}`).send({ status: "OPEN" }).expect(200);
+    for (const agent of [issuer, scorer, evaluator]) {
+      const list = (await agent.get("/api/events").expect(200)).body;
+      expect(list.map((e: { id: number }) => e.id)).toEqual([eventId]);
+    }
+  });
+
+  it("allows only one running event", async () => {
+    const other = await admin
+      .post("/api/events")
+      .send({ name: "Zweite Veranstaltung", date: "2024-10-01", disciplineIds: [disciplines["CAS"]] })
+      .expect(201);
+    await admin.patch(`/api/events/${other.body.id}`).send({ status: "OPEN" }).expect(409);
+    expect((await issuer.get("/api/events").expect(200)).body).toHaveLength(1);
+    await admin.delete(`/api/events/${other.body.id}`).expect(204);
+  });
+});
+
 describe("permissions", () => {
   it("allows only admins to manage users, disciplines and events", async () => {
     for (const agent of [issuer, scorer, evaluator]) {
@@ -92,8 +127,11 @@ describe("permissions", () => {
     }
   });
 
-  it("allows only issuers to hand out cards and only scorers to enter results", async () => {
-    const body = { shooterName: "Perm Test", disciplineId: disciplines["Büffel 50M"] };
+  it("allows only issuers to register shooters and hand out cards, only scorers to enter results", async () => {
+    await scorer.post(`/api/events/${eventId}/shooters`).send({ name: "Perm Test" }).expect(403);
+    await evaluator.post(`/api/events/${eventId}/shooters`).send({ name: "Perm Test" }).expect(403);
+    const shooter = await register(issuer, "Perm Test");
+    const body = { shooterId: shooter.id, disciplineId: disciplines["Büffel 50M"] };
     await scorer.post(`/api/events/${eventId}/cards`).send(body).expect(403);
     await evaluator.post(`/api/events/${eventId}/cards`).send(body).expect(403);
     const card = await issuer.post(`/api/events/${eventId}/cards`).send(body).expect(201);
@@ -101,13 +139,17 @@ describe("permissions", () => {
     await issuer.put(`/api/cards/${card.body.id}/result`).send({ score: 50 }).expect(403);
     await evaluator.put(`/api/cards/${card.body.id}/result`).send({ score: 50 }).expect(403);
     await scorer.delete(`/api/cards/${card.body.id}`).expect(403);
+
+    // a shooter with cards cannot be removed; without cards they can
+    await issuer.delete(`/api/shooters/${shooter.id}`).expect(409);
     await issuer.delete(`/api/cards/${card.body.id}`).expect(204);
-    // the shooter had no other card and is removed with it
-    const shooters = await issuer.get(`/api/events/${eventId}/shooters`).expect(200);
-    expect(shooters.body).toEqual([]);
+    expect((await issuer.get(`/api/events/${eventId}/shooters`).expect(200)).body).toHaveLength(1);
+    await scorer.delete(`/api/shooters/${shooter.id}`).expect(403);
+    await issuer.delete(`/api/shooters/${shooter.id}`).expect(204);
+    expect((await issuer.get(`/api/events/${eventId}/shooters`).expect(200)).body).toEqual([]);
   });
 
-  it("keeps evaluation and export away from issuers while the event is running", async () => {
+  it("keeps evaluation and export away from issuers", async () => {
     await issuer.get(`/api/events/${eventId}/evaluation`).expect(403);
     await issuer.get(`/api/events/${eventId}/export.pdf`).expect(403);
     await scorer.get(`/api/events/${eventId}/evaluation`).expect(200);
@@ -117,29 +159,36 @@ describe("permissions", () => {
 
 describe("event workflow", () => {
   const cardIds: Record<string, number> = {};
+  const issue = (shooterId: number, discipline: string) =>
+    issuer.post(`/api/events/${eventId}/cards`).send({ shooterId, disciplineId: disciplines[discipline] });
 
-  it("assigns shooter and card numbers and reuses the shooter for further cards", async () => {
-    const b50 = disciplines["Büffel 50M"];
-    const first = await issuer.post(`/api/events/${eventId}/cards`).send({ shooterName: "Anna", disciplineId: b50 }).expect(201);
-    expect(first.body.shooter).toMatchObject({ number: 1, name: "Anna" });
-    expect(first.body.cardNumber).toBe(1); // the card taken back above was the last one, its number is free again
+  it("assigns shooter numbers on registration and marks further cards of a discipline as rebuy", async () => {
+    const anna = await register(issuer, "Anna");
+    const bert = await register(issuer, "Bert");
+    const cora = await register(issuer, "Cora"); // signs the list but never gets a card
+    expect([anna.number, bert.number, cora.number]).toEqual([1, 2, 3]);
 
-    const second = await issuer.post(`/api/events/${eventId}/cards`).send({ shooterName: "Bert", disciplineId: b50 }).expect(201);
-    expect(second.body.shooter.number).toBe(2);
+    const first = await issue(anna.id, "Büffel 50M").expect(201);
+    expect(first.body).toMatchObject({ cardNumber: 1, rebuy: false, shooter: { number: 1, name: "Anna" } });
+    const second = await issue(bert.id, "Büffel 50M").expect(201);
+    const again = await issue(anna.id, "Büffel 50M").expect(201);
+    expect(again.body).toMatchObject({ rebuy: true, shooter: { number: 1 } });
+    const annaCas = await issue(anna.id, "CAS").expect(201);
+    expect(annaCas.body.rebuy).toBe(false);
+    const bertCas = await issue(bert.id, "CAS").expect(201);
 
-    const again = await issuer.post(`/api/events/${eventId}/cards`).send({ shooterId: first.body.shooter.id, disciplineId: b50 }).expect(201);
-    expect(again.body.shooter.number).toBe(1);
-    const annaCas = await issuer.post(`/api/events/${eventId}/cards`).send({ shooterId: first.body.shooter.id, disciplineId: disciplines["CAS"] }).expect(201);
-    const bertCas = await issuer.post(`/api/events/${eventId}/cards`).send({ shooterId: second.body.shooter.id, disciplineId: disciplines["CAS"] }).expect(201);
+    const list = (await issuer.get(`/api/events/${eventId}/cards`).expect(200)).body;
+    expect(list.map((c: any) => [c.cardNumber, c.rebuy])).toEqual([[5, false], [4, false], [3, true], [2, false], [1, false]]);
 
-    Object.assign(cardIds, { anna1: first.body.id, bert1: second.body.id, anna2: again.body.id, annaCas: annaCas.body.id, bertCas: bertCas.body.id });
+    Object.assign(cardIds, { anna1: first.body.id, bert1: second.body.id, anna2: again.body.id, annaCas: annaCas.body.id, bertCas: bertCas.body.id, annaShooter: anna.id });
   });
 
   it("rejects disciplines that are not part of the event and invalid input", async () => {
-    await issuer.post(`/api/events/${eventId}/cards`).send({ shooterName: "X", disciplineId: disciplines["Greenhorn"] }).expect(400);
+    await issue(cardIds.annaShooter, "Greenhorn").expect(400);
     await issuer.post(`/api/events/${eventId}/cards`).send({ disciplineId: disciplines["CAS"] }).expect(400);
-    await issuer.post(`/api/events/${eventId}/cards`).send({ shooterName: "  ", disciplineId: disciplines["CAS"] }).expect(400);
     await issuer.post(`/api/events/${eventId}/cards`).send({ shooterId: 99999, disciplineId: disciplines["CAS"] }).expect(404);
+    await issuer.post(`/api/events/${eventId}/shooters`).send({ name: "  " }).expect(400);
+    await issuer.patch(`/api/shooters/${cardIds.annaShooter}`).send({ name: "Anna" }).expect(200);
   });
 
   it("validates results against the discipline", async () => {
@@ -164,10 +213,10 @@ describe("event workflow", () => {
       [2, "Bert", 85, 1],
     ]);
     expect(cas.rows.map((r: any) => [r.place, r.shooterName, r.finalTimeCs])).toEqual([[1, "Anna", 5500]]);
-    expect(res.body.statistics).toMatchObject({ cardsIssued: 5, cardsOpen: 1, shooters: 2 });
-    expect(res.body.statistics.disciplines.map((d: any) => [d.name, d.cards, d.shooters, d.openCards])).toEqual([
-      ["Büffel 50M", 3, 2, 0],
-      ["CAS", 2, 2, 1],
+    expect(res.body.statistics).toMatchObject({ cardsIssued: 5, cardsOpen: 1, cardsRebought: 1, shooters: 3 });
+    expect(res.body.statistics.disciplines.map((d: any) => [d.name, d.cards, d.shooters, d.rebuys, d.openCards])).toEqual([
+      ["Büffel 50M", 3, 2, 1, 0],
+      ["CAS", 2, 2, 0, 1],
     ]);
   });
 
@@ -202,25 +251,33 @@ describe("event workflow", () => {
     await admin.patch(`/api/disciplines/${disciplines["CAS"]}`).send({ penaltySeconds: 10 }).expect(409);
   });
 
-  it("makes a closed event read-only and its results visible to everyone", async () => {
+  it("hides an ended event from everyone but admins, who can still correct it", async () => {
     await admin.patch(`/api/events/${eventId}`).send({ status: "CLOSED" }).expect(200);
-    await issuer.post(`/api/events/${eventId}/cards`).send({ shooterName: "Late", disciplineId: disciplines["CAS"] }).expect(409);
-    await scorer.put(`/api/cards/${cardIds.bertCas}/result`).send({ rawTimeCs: 3000, penalties: 0 }).expect(409);
-    await scorer.delete(`/api/cards/${cardIds.anna1}/result`).expect(409);
-    await issuer.get(`/api/events/${eventId}/evaluation`).expect(200);
-    // admins can still correct
-    await admin.put(`/api/cards/${cardIds.bertCas}/result`).send({ rawTimeCs: 3000, penalties: 0 }).expect(200);
-  });
-
-  it("hides archived events from everyone but admins", async () => {
-    await admin.patch(`/api/events/${eventId}`).send({ archived: true }).expect(200);
-    expect((await evaluator.get("/api/events").expect(200)).body).toEqual([]);
-    expect((await evaluator.get("/api/events?archived=true").expect(200)).body).toEqual([]);
-    await evaluator.get(`/api/events/${eventId}`).expect(404);
+    for (const agent of [issuer, scorer, evaluator]) {
+      expect((await agent.get("/api/events").expect(200)).body).toEqual([]);
+      await agent.get(`/api/events/${eventId}`).expect(404);
+    }
+    await issuer.post(`/api/events/${eventId}/shooters`).send({ name: "Late" }).expect(404);
+    await issuer.post(`/api/events/${eventId}/cards`).send({ shooterId: cardIds.annaShooter, disciplineId: disciplines["CAS"] }).expect(404);
+    await scorer.put(`/api/cards/${cardIds.bertCas}/result`).send({ rawTimeCs: 3000, penalties: 0 }).expect(404);
+    await scorer.delete(`/api/cards/${cardIds.anna1}/result`).expect(404);
     await evaluator.get(`/api/events/${eventId}/evaluation`).expect(404);
     await scorer.get(`/api/events/${eventId}/export.pdf`).expect(404);
+
+    await admin.put(`/api/cards/${cardIds.bertCas}/result`).send({ rawTimeCs: 3000, penalties: 0 }).expect(200);
+    await admin.get(`/api/events/${eventId}/evaluation`).expect(200);
+    await admin.get(`/api/events/${eventId}/export.pdf`).expect(200);
+  });
+
+  it("archives events: hidden from the default list, cannot be started", async () => {
+    await admin.patch(`/api/events/${eventId}`).send({ archived: true }).expect(200);
+    expect((await admin.get("/api/events").expect(200)).body).toEqual([]);
     expect((await admin.get("/api/events?archived=true").expect(200)).body).toHaveLength(1);
+    expect((await evaluator.get("/api/events?archived=true").expect(200)).body).toEqual([]);
+    await admin.patch(`/api/events/${eventId}`).send({ status: "OPEN" }).expect(409);
     await admin.patch(`/api/events/${eventId}`).send({ archived: false }).expect(200);
+    // restarting makes it visible again
+    await admin.patch(`/api/events/${eventId}`).send({ status: "OPEN" }).expect(200);
     expect((await evaluator.get("/api/events").expect(200)).body).toHaveLength(1);
   });
 

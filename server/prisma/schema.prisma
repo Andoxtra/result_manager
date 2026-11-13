@@ -42,12 +42,12 @@ model Discipline {
   cards          Card[]
 }
 
-/// status: OPEN | CLOSED
+/// status: PLANNED (not started, admins only) | OPEN (running) | CLOSED (ended, admins only)
 model Event {
   id          Int               @id @default(autoincrement())
   name        String
   date        DateTime
-  status      String            @default("OPEN")
+  status      String            @default("PLANNED")
   archivedAt  DateTime?
   createdAt   DateTime          @default(now())
   disciplines EventDiscipline[]

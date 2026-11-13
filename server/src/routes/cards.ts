@@ -3,19 +3,14 @@ import { z } from "zod";
 import { hasRole, requireAuth, requireRole, type SessionUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { HttpError, idParam, notFound } from "../errors.js";
-import { loadVisibleEvent } from "./events.js";
+import { isVisibleTo, loadVisibleEvent } from "./events.js";
 
 const shooterName = z.string().trim().min(1, "Name fehlt.").max(100);
 
-const issueSchema = z
-  .object({
-    disciplineId: z.number().int().positive(),
-    shooterId: z.number().int().positive().optional(),
-    shooterName: shooterName.optional(),
-  })
-  .refine((d) => (d.shooterId === undefined) !== (d.shooterName === undefined), {
-    message: "Entweder einen bestehenden Schützen wählen oder einen neuen Namen angeben.",
-  });
+const issueSchema = z.object({
+  disciplineId: z.number().int().positive(),
+  shooterId: z.number().int().positive(),
+});
 
 const pointsResult = z.object({ score: z.number().int().min(0) });
 const timeResult = z.object({
@@ -30,69 +25,117 @@ const cardInclude = {
   scoredBy: { select: { displayName: true } },
 } as const;
 
-/** Closed events are read-only for everyone except admins. */
+/** Only the running event can be changed; admins can correct any event. */
 function assertWritable(event: { status: string }, user: SessionUser | undefined) {
   if (event.status !== "OPEN" && !hasRole(user)) {
-    throw new HttpError(409, "Die Veranstaltung ist abgeschlossen und kann nicht mehr geändert werden.");
+    throw new HttpError(409, "Die Veranstaltung läuft nicht und kann nicht geändert werden.");
   }
 }
 
 async function loadCard(id: number, user: SessionUser | undefined) {
   const card = await prisma.card.findUnique({ where: { id }, include: { event: true, discipline: true } });
-  if (!card || (card.event.archivedAt && !hasRole(user))) throw notFound("Die Schießkarte");
+  if (!card || !isVisibleTo(card.event, user)) throw notFound("Die Schießkarte");
   return card;
 }
+
+async function loadShooter(id: number, user: SessionUser | undefined) {
+  const shooter = await prisma.shooter.findUnique({
+    where: { id },
+    include: { event: true, _count: { select: { cards: true } } },
+  });
+  if (!shooter || !isVisibleTo(shooter.event, user)) throw notFound("Der Schütze");
+  return shooter;
+}
+
+const shooterDto = (s: { id: number; number: number; name: string }, cardCount: number) => ({
+  id: s.id,
+  number: s.number,
+  name: s.name,
+  cardCount,
+});
+
+/**
+ * "Nachlösen": a card is a rebuy if the shooter already got an earlier card for the
+ * same discipline.
+ */
+async function withRebuy<T extends { eventId: number; shooterId: number; disciplineId: number; cardNumber: number }>(
+  card: T,
+) {
+  const earlier = await prisma.card.count({
+    where: {
+      eventId: card.eventId,
+      shooterId: card.shooterId,
+      disciplineId: card.disciplineId,
+      cardNumber: { lt: card.cardNumber },
+    },
+  });
+  return { ...card, rebuy: earlier > 0 };
+}
+
+const eventId = (params: unknown) => idParam((params as { eventId?: string }).eventId);
 
 /** Routes below /api/events/:eventId */
 export const eventCardsRouter = Router({ mergeParams: true });
 
 eventCardsRouter.get("/shooters", requireAuth, async (req, res) => {
-  const event = await loadVisibleEvent(idParam((req.params as { eventId?: string }).eventId), req.user);
+  const event = await loadVisibleEvent(eventId(req.params), req.user);
   const shooters = await prisma.shooter.findMany({
     where: { eventId: event.id },
     include: { _count: { select: { cards: true } } },
     orderBy: { number: "asc" },
   });
-  res.json(shooters.map((s) => ({ id: s.id, number: s.number, name: s.name, cardCount: s._count.cards })));
+  res.json(shooters.map((s) => shooterDto(s, s._count.cards)));
+});
+
+/** Registers a shooter and assigns the next free shooter number of the event. */
+eventCardsRouter.post("/shooters", requireRole("ISSUER"), async (req, res) => {
+  const event = await loadVisibleEvent(eventId(req.params), req.user);
+  assertWritable(event, req.user);
+  const { name } = z.object({ name: shooterName }).parse(req.body);
+  // "highest + 1" inside a transaction: SQLite allows only one writer at a time,
+  // so two issuers cannot get the same number.
+  const shooter = await prisma.$transaction(async (tx) => {
+    const last = await tx.shooter.aggregate({ where: { eventId: event.id }, _max: { number: true } });
+    return tx.shooter.create({
+      data: { eventId: event.id, name, number: (last._max.number ?? 0) + 1 },
+    });
+  });
+  res.status(201).json(shooterDto(shooter, 0));
 });
 
 eventCardsRouter.get("/cards", requireAuth, async (req, res) => {
-  const event = await loadVisibleEvent(idParam((req.params as { eventId?: string }).eventId), req.user);
+  const event = await loadVisibleEvent(eventId(req.params), req.user);
   const cards = await prisma.card.findMany({
     where: { eventId: event.id },
     include: cardInclude,
-    orderBy: { cardNumber: "desc" },
+    orderBy: { cardNumber: "asc" },
   });
-  res.json(cards);
+  const seen = new Set<string>();
+  const result = cards.map((card) => {
+    const key = `${card.shooterId}:${card.disciplineId}`;
+    const rebuy = seen.has(key);
+    seen.add(key);
+    return { ...card, rebuy };
+  });
+  res.json(result.reverse());
 });
 
 eventCardsRouter.post("/cards", requireRole("ISSUER"), async (req, res) => {
-  const event = await loadVisibleEvent(idParam((req.params as { eventId?: string }).eventId), req.user);
+  const event = await loadVisibleEvent(eventId(req.params), req.user);
   assertWritable(event, req.user);
   const data = issueSchema.parse(req.body);
   if (!event.disciplines.some((d) => d.disciplineId === data.disciplineId)) {
     throw new HttpError(400, "Diese Disziplin wird bei der Veranstaltung nicht geschossen.");
   }
 
-  // Shooter and card numbers are "highest + 1"; the transaction keeps two issuers from
-  // getting the same number (SQLite allows only one writer at a time).
   const card = await prisma.$transaction(async (tx) => {
-    let shooterId = data.shooterId;
-    if (shooterId !== undefined) {
-      const shooter = await tx.shooter.findFirst({ where: { id: shooterId, eventId: event.id } });
-      if (!shooter) throw notFound("Der Schütze");
-    } else {
-      const last = await tx.shooter.aggregate({ where: { eventId: event.id }, _max: { number: true } });
-      const shooter = await tx.shooter.create({
-        data: { eventId: event.id, name: data.shooterName!, number: (last._max.number ?? 0) + 1 },
-      });
-      shooterId = shooter.id;
-    }
+    const shooter = await tx.shooter.findFirst({ where: { id: data.shooterId, eventId: event.id } });
+    if (!shooter) throw notFound("Der Schütze");
     const lastCard = await tx.card.aggregate({ where: { eventId: event.id }, _max: { cardNumber: true } });
     return tx.card.create({
       data: {
         eventId: event.id,
-        shooterId,
+        shooterId: shooter.id,
         disciplineId: data.disciplineId,
         cardNumber: (lastCard._max.cardNumber ?? 0) + 1,
         issuedById: req.user!.id,
@@ -100,20 +143,29 @@ eventCardsRouter.post("/cards", requireRole("ISSUER"), async (req, res) => {
       include: cardInclude,
     });
   });
-  res.status(201).json(card);
+  res.status(201).json(await withRebuy(card));
 });
 
 export const shootersRouter = Router();
 
 /** Correct a misspelled name. */
 shootersRouter.patch("/:id", requireRole("ISSUER"), async (req, res) => {
-  const id = idParam(req.params.id);
-  const { name } = z.object({ name: shooterName }).parse(req.body);
-  const shooter = await prisma.shooter.findUnique({ where: { id }, include: { event: true } });
-  if (!shooter || (shooter.event.archivedAt && !hasRole(req.user))) throw notFound("Der Schütze");
+  const shooter = await loadShooter(idParam(req.params.id), req.user);
   assertWritable(shooter.event, req.user);
-  const updated = await prisma.shooter.update({ where: { id }, data: { name } });
-  res.json({ id: updated.id, number: updated.number, name: updated.name });
+  const { name } = z.object({ name: shooterName }).parse(req.body);
+  const updated = await prisma.shooter.update({ where: { id: shooter.id }, data: { name } });
+  res.json(shooterDto(updated, shooter._count.cards));
+});
+
+/** A shooter registered by mistake can be removed as long as they have no card. */
+shootersRouter.delete("/:id", requireRole("ISSUER"), async (req, res) => {
+  const shooter = await loadShooter(idParam(req.params.id), req.user);
+  assertWritable(shooter.event, req.user);
+  if (shooter._count.cards > 0) {
+    throw new HttpError(409, "Für diesen Schützen wurden bereits Schießkarten ausgegeben.");
+  }
+  await prisma.shooter.delete({ where: { id: shooter.id } });
+  res.status(204).end();
 });
 
 export const cardsRouter = Router();
@@ -126,13 +178,7 @@ cardsRouter.delete("/:id", requireRole("ISSUER"), async (req, res) => {
   if (scored && !hasRole(req.user)) {
     throw new HttpError(409, "Für diese Karte ist bereits ein Ergebnis erfasst.");
   }
-  await prisma.$transaction(async (tx) => {
-    await tx.card.delete({ where: { id: card.id } });
-    // a shooter without any card did not take part: remove them again
-    if ((await tx.card.count({ where: { shooterId: card.shooterId } })) === 0) {
-      await tx.shooter.delete({ where: { id: card.shooterId } });
-    }
-  });
+  await prisma.card.delete({ where: { id: card.id } });
   res.status(204).end();
 });
 
@@ -156,7 +202,7 @@ cardsRouter.put("/:id/result", requireRole("SCORER"), async (req, res) => {
     data: { ...result, scoredAt: new Date(), scoredById: req.user!.id },
     include: cardInclude,
   });
-  res.json(updated);
+  res.json(await withRebuy(updated));
 });
 
 cardsRouter.delete("/:id/result", requireRole("SCORER"), async (req, res) => {
@@ -167,5 +213,5 @@ cardsRouter.delete("/:id/result", requireRole("SCORER"), async (req, res) => {
     data: { score: null, rawTimeCs: null, penalties: null, scoredAt: null, scoredById: null },
     include: cardInclude,
   });
-  res.json(updated);
+  res.json(await withRebuy(updated));
 });

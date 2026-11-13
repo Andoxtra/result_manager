@@ -44,11 +44,15 @@ export interface DisciplineStatistics {
   cards: number;
   openCards: number;
   shooters: number;
+  /** "Nachlösen": cards beyond a shooter's first one in this discipline */
+  rebuys: number;
 }
 
 export interface Statistics {
   cardsIssued: number;
   cardsOpen: number;
+  cardsRebought: number;
+  /** registered shooters */
   shooters: number;
   disciplines: DisciplineStatistics[];
 }
@@ -114,20 +118,21 @@ export function rankDiscipline(
   return rows;
 }
 
-/** Shooters count as participants once they have received at least one card. */
-export function computeStatistics(disciplines: DisciplineInfo[], cards: CardInfo[]): Statistics {
+export function computeStatistics(
+  disciplines: DisciplineInfo[],
+  cards: CardInfo[],
+  shooterCount: number,
+): Statistics {
   const byId = new Map(disciplines.map((d) => [d.id, d]));
   const perDiscipline = new Map(
     disciplines.map((d) => [d.id, { cards: 0, openCards: 0, shooters: new Set<number>() }]),
   );
-  const allShooters = new Set<number>();
   let cardsOpen = 0;
 
   for (const card of cards) {
     const discipline = byId.get(card.disciplineId);
     const stats = perDiscipline.get(card.disciplineId);
     if (!discipline || !stats) continue;
-    allShooters.add(card.shooterId);
     stats.cards++;
     stats.shooters.add(card.shooterId);
     if (!isScored(discipline, card)) {
@@ -136,20 +141,24 @@ export function computeStatistics(disciplines: DisciplineInfo[], cards: CardInfo
     }
   }
 
+  const perDisciplineStats = disciplines.map((d) => {
+    const s = perDiscipline.get(d.id)!;
+    return {
+      disciplineId: d.id,
+      name: d.name,
+      cards: s.cards,
+      openCards: s.openCards,
+      shooters: s.shooters.size,
+      rebuys: s.cards - s.shooters.size,
+    };
+  });
+
   return {
     cardsIssued: cards.length,
     cardsOpen,
-    shooters: allShooters.size,
-    disciplines: disciplines.map((d) => {
-      const s = perDiscipline.get(d.id)!;
-      return {
-        disciplineId: d.id,
-        name: d.name,
-        cards: s.cards,
-        openCards: s.openCards,
-        shooters: s.shooters.size,
-      };
-    }),
+    cardsRebought: perDisciplineStats.reduce((sum, d) => sum + d.rebuys, 0),
+    shooters: shooterCount,
+    disciplines: perDisciplineStats,
   };
 }
 

@@ -64,15 +64,17 @@ describe("rankDiscipline (time)", () => {
 });
 
 describe("computeStatistics", () => {
-  it("counts cards, open cards and distinct shooters", () => {
-    const cards = [pointsCard(1, 80), pointsCard(1, null), pointsCard(2, 70), timeCard(1, 4000, 0), timeCard(3, null, null)];
-    expect(computeStatistics([points, cas], cards)).toEqual({
-      cardsIssued: 5,
+  it("counts cards, open cards, rebuys and shooters per discipline", () => {
+    const cards = [pointsCard(1, 80), pointsCard(1, null), pointsCard(1, 60), pointsCard(2, 70), timeCard(1, 4000, 0), timeCard(3, null, null)];
+    // 4 shooters are registered, one of them never got a card
+    expect(computeStatistics([points, cas], cards, 4)).toEqual({
+      cardsIssued: 6,
       cardsOpen: 2,
-      shooters: 3,
+      cardsRebought: 2,
+      shooters: 4,
       disciplines: [
-        { disciplineId: 1, name: "Büffel 50M", cards: 3, openCards: 1, shooters: 2 },
-        { disciplineId: 2, name: "CAS", cards: 2, openCards: 1, shooters: 2 },
+        { disciplineId: 1, name: "Büffel 50M", cards: 4, openCards: 1, shooters: 2, rebuys: 2 },
+        { disciplineId: 2, name: "CAS", cards: 2, openCards: 1, shooters: 2, rebuys: 0 },
       ],
     });
   });

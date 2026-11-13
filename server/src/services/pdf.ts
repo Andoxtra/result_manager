@@ -115,6 +115,7 @@ export function renderEventPdf(evaluation: Evaluation): Promise<Buffer> {
   doc.font("Helvetica").fontSize(11);
   doc.text(`Schützen insgesamt: ${statistics.shooters}`);
   doc.text(`Ausgegebene Schießkarten: ${statistics.cardsIssued}`);
+  doc.text(`Davon nachgelöst: ${statistics.cardsRebought}`);
   if (statistics.cardsOpen > 0) doc.text(`Davon ohne Ergebnis: ${statistics.cardsOpen}`);
   doc.moveDown(1.2);
   doc.font("Helvetica-Bold").fontSize(13).text("Teilnahme je Disziplin");
@@ -122,9 +123,10 @@ export function renderEventPdf(evaluation: Evaluation): Promise<Buffer> {
   drawTable(
     doc,
     [
-      { title: "Disziplin", width: 255, value: (d) => d.name },
-      { title: "Schützen", width: 80, align: "right", value: (d) => String(d.shooters) },
-      { title: "Karten", width: 80, align: "right", value: (d) => String(d.cards) },
+      { title: "Disziplin", width: 195, value: (d) => d.name },
+      { title: "Schützen", width: 70, align: "right", value: (d) => String(d.shooters) },
+      { title: "Karten", width: 70, align: "right", value: (d) => String(d.cards) },
+      { title: "Nachgelöst", width: 80, align: "right", value: (d) => String(d.rebuys) },
       { title: "Ohne Ergebnis", width: 80, align: "right", value: (d) => String(d.openCards) },
     ],
     statistics.disciplines,
