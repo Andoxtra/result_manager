@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id           Int        @id @default(autoincrement())
+  username     String     @unique
+  displayName  String
+  passwordHash String
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  roles        UserRole[]
+  issuedCards  Card[]     @relation("issuedBy")
+  scoredCards  Card[]     @relation("scoredBy")
+}
+
+/// role: ADMIN | ISSUER | SCORER | EVALUATOR
+model UserRole {
+  userId Int
+  role   String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, role])
+}
+
+/// scoringType: POINTS (higher total wins) | TIME (lower final time wins)
+model Discipline {
+  id             Int               @id @default(autoincrement())
+  name           String            @unique
+  scoringType    String
+  /// POINTS only: highest total that can be entered
+  maxScore       Int               @default(100)
+  /// TIME only: seconds added per penalty
+  penaltySeconds Int               @default(5)
+  active         Boolean           @default(true)
+  events         EventDiscipline[]
+  cards          Card[]
+}
+
+/// status: OPEN | CLOSED
+model Event {
+  id          Int               @id @default(autoincrement())
+  name        String
+  date        DateTime
+  status      String            @default("OPEN")
+  archivedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  disciplines EventDiscipline[]
+  shooters    Shooter[]
+  cards       Card[]
+}
+
+model EventDiscipline {
+  eventId      Int
+  disciplineId Int
+  event        Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  discipline   Discipline @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
+
+  @@id([eventId, disciplineId])
+}
+
+model Shooter {
+  id      Int    @id @default(autoincrement())
+  eventId Int
+  /// shooter number, assigned per event starting at 1
+  number  Int
+  name    String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  cards   Card[]
+
+  @@unique([eventId, number])
+}
+
+model Card {
+  id           Int        @id @default(autoincrement())
+  eventId      Int
+  /// running card number per event
+  cardNumber   Int
+  shooterId    Int
+  disciplineId Int
+  issuedAt     DateTime   @default(now())
+  issuedById   Int?
+  /// POINTS result: total of all rounds
+  score        Int?
+  /// TIME result: raw time in hundredths of a second
+  rawTimeCs    Int?
+  /// TIME result: number of penalties
+  penalties    Int?
+  scoredAt     DateTime?
+  scoredById   Int?
+  event        Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  shooter      Shooter    @relation(fields: [shooterId], references: [id], onDelete: Cascade)
+  discipline   Discipline @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
+  issuedBy     User?      @relation("issuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+  scoredBy     User?      @relation("scoredBy", fields: [scoredById], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, cardNumber])
+  @@index([eventId, disciplineId])
+}
